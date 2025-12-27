@@ -733,14 +733,13 @@ const ProductDetail = ({ product, products, onBack, onAddToCart, currency, speci
 
   const hasFeatures = product?.features && product.features.length > 0;
   const primaryLabel = product.featureType === 'number' ? 'Quantity' : 'Size';
-
   const uniquePrimaries = hasFeatures
     ? [...new Set(product.features.map((f) => f.size))]
     : ['12" x 18"', '18" x 24"', '24" x 36"'];
 
-  const uniqueColors = hasFeatures
-    ? [...new Set(product.features.map((f) => f.color))]
-    : ['White', 'Clear', 'Black', 'Frosted'];
+  const uniqueColors = Array.isArray(product.colors) && product.colors.length > 0
+    ? product.colors
+    : (hasFeatures ? [...new Set(product.features.map((f) => f.color))].filter(Boolean) : ['White', 'Clear', 'Black', 'Frosted']);
 
     useEffect(() => {
       // FIX: Ensure page starts at top when product loads
@@ -755,14 +754,8 @@ const ProductDetail = ({ product, products, onBack, onAddToCart, currency, speci
     }, [product]); // reset when product changes
 
   const getBaseVariantPrice = () => {
-    if (!hasFeatures) return Number(product.price) || 0;
-    const matched = product.features.find(
-      (f) => f.size === primaryValue && f.color === color
-    );
-    const candidate = matched
-      ? matched.price
-      : product.features.find((f) => f.size === primaryValue)?.price || product.price;
-    return Number(candidate) || 0;
+    // Features no longer carry per-variant price; use global product price
+    return Number(product.price) || 0;
   };
 
   const basePrice = getBaseVariantPrice();
@@ -2475,6 +2468,7 @@ const AdminDashboard = ({
     images: [],
     imageFiles: [], // Store actual File objects
     features: [],
+    colors: [],
     featureLabelType: 'size',
     isBestseller: false,
   });
@@ -2488,23 +2482,31 @@ const AdminDashboard = ({
     const newFeatures = Array(count)
       .fill(null)
       .map((_, i) => {
-        const existing = formData.features[i] || { size: '', color: '', price: '' };
+        const existing = formData.features[i] || { size: '', quantity: 0 };
         return { ...existing };
       });
     setFormData((prev) => ({ ...prev, features: newFeatures }));
   };
 
   const updateFeature = (index, field, value) => {
-    const newFeatures = [...formData.features];
-    // If changing color, apply same color to all variants
-    if (field === 'color') {
-      for (let i = 0; i < newFeatures.length; i++) {
-        newFeatures[i] = { ...newFeatures[i], color: value };
-      }
-    } else {
-      newFeatures[index] = { ...newFeatures[index], [field]: value };
+    const newFeatures = [...(formData.features || [])];
+    // Preserve decimals for numeric feature fields like `quantity` or `price`
+    let parsed = value;
+    if (field === 'quantity' || field === 'price') {
+      // allow empty string while editing, otherwise parse as float
+      parsed = value === '' ? '' : parseFloat(value);
+      if (Number.isNaN(parsed)) parsed = 0;
     }
+    newFeatures[index] = { ...newFeatures[index], [field]: parsed };
     setFormData((prev) => ({ ...prev, features: newFeatures }));
+  };
+
+  const handleColorCountChange = (e) => {
+    const count = Math.max(0, Math.min(50, Number(e.target.value) || 0));
+    const newColors = Array(count)
+      .fill(null)
+      .map((_, i) => formData.colors[i] || '');
+    setFormData((prev) => ({ ...prev, colors: newColors }));
   };
 
   const handleImagesChange = (e) => {
@@ -2525,10 +2527,7 @@ const AdminDashboard = ({
       ? products.find((prod) => (prod._id === formData.id || prod.id === formData.id)) || {}
       : {};
 
-    const finalPrice =
-      formData.features.length > 0
-        ? Number(formData.features[0].price || 0)
-        : Number(formData.price || 0);
+    const finalPrice = Number(formData.price || 0);
 
     const productData = {
       name: formData.name,
@@ -2541,14 +2540,18 @@ const AdminDashboard = ({
       // Ensure features have correct shape and numeric price
       features: (formData.features || []).map((f) => ({
         size: f.size || '',
-        color: f.color || '',
-        price: Number(f.price) || 0
+        quantity: Number(f.quantity || 0)
       })),
       featureType: formData.featureLabelType || 'size',
       stock: formData.stock ? parseInt(formData.stock) : 0,
       images: formData.images || [],
       image: (formData.images && formData.images[0]) || prev?.image || ''
     };
+
+    // Attach colors if present
+    if (Array.isArray(formData.colors) && formData.colors.length > 0) {
+      productData.colors = formData.colors.filter((c) => c && c.trim().length > 0);
+    }
 
     try {
       // Check if user is logged in before proceeding
@@ -2582,6 +2585,7 @@ const AdminDashboard = ({
         images: [],
         imageFiles: [],
         features: [],
+        colors: [],
         featureLabelType: 'size',
         isBestseller: false,
         stock: 0,
@@ -2630,7 +2634,12 @@ const AdminDashboard = ({
       images: product.images || (product.image ? [product.image] : []),
       imageFiles: [], // Reset file objects for update
       image: product.image,
-      features: product.features || [],
+      // normalize existing features to new shape {size, quantity}
+      features: (product.features || []).map((f) => ({ size: f.size || '', quantity: Number(f.quantity ?? f.qty ?? f.price ?? 0) })),
+      // colors: use explicit colors array if present, otherwise derive from legacy features' color field
+      colors: Array.isArray(product.colors) && product.colors.length > 0
+        ? product.colors
+        : Array.from(new Set((product.features || []).map((f) => f.color).filter(Boolean))),
       featureLabelType: product.featureType || 'size',
       isBestseller: product.isBestseller || false,
       stock: product.stock || 0
@@ -2749,7 +2758,7 @@ const AdminDashboard = ({
                   type="number"
                   min="0"
                   max="20"
-                  value={formData.features.length}
+                  value={formData.features?.length || 0}
                   onChange={handleVariantCountChange}
                   className="w-16 p-1.5 border rounded text-xs focus:outline-none focus:border-[#d4b896]"
                 />
@@ -2757,50 +2766,75 @@ const AdminDashboard = ({
             </div>
           </div>
 
-          {formData.features.length > 0 && (
+          {(formData.features?.length || 0) > 0 && (
             <div className="border rounded-lg overflow-hidden bg-white">
-                <div className="grid grid-cols-3 text-xs font-bold bg-[#f8f4f0] border-b">
-                <div className="px-3 py-2 border-r">
-                  {formData.featureLabelType === 'number' ? 'Quantity' : 'Size'}
+                <div className="grid grid-cols-2 text-xs font-bold bg-[#f8f4f0] border-b">
+                  <div className="px-3 py-2 border-r">
+                    {formData.featureLabelType === 'number' ? 'Quantity' : 'Size'}
+                  </div>
+                  <div className="px-3 py-2">Prices</div>
                 </div>
-                <div className="px-3 py-2 border-r">Color</div>
-                <div className="px-3 py-2">Price ($)</div>
-              </div>
-              {formData.features.map((f, i) => (
-                <div key={i} className="grid grid-cols-3 text-xs">
-                  <div className="border-r p-1.5">
-                    <input
-                      placeholder={
-                        formData.featureLabelType === 'number' ? 'e.g. 1, 2, 3' : 'e.g. 18x24'
-                      }
-                      className="w-full p-2 text-xs border rounded focus:outline-none focus:border-[#d4b896]"
-                      value={f.size}
-                      onChange={(e) => updateFeature(i, 'size', e.target.value)}
-                      required
-                    />
+                {formData.features.map((f, i) => (
+                  <div key={i} className="grid grid-cols-2 text-xs">
+                    <div className="border-r p-1.5">
+                      <input
+                        placeholder={
+                          formData.featureLabelType === 'number' ? 'e.g. 1, 2, 3' : 'e.g. 18x24'
+                        }
+                        className="w-full p-2 text-xs border rounded focus:outline-none focus:border-[#d4b896]"
+                        value={f.size}
+                        onChange={(e) => updateFeature(i, 'size', e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="p-1.5">
+                      <input
+                        placeholder="e.g. 10.50"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="w-full p-2 text-xs border rounded focus:outline-none focus:border-[#d4b896]"
+                        value={f.quantity}
+                        onChange={(e) => updateFeature(i, 'quantity', e.target.value)}
+                        required
+                      />
+                    </div>
                   </div>
-                  <div className="border-r p-1.5">
-                    <input
-                      placeholder="e.g. White"
-                      className="w-full p-2 text-xs border rounded focus:outline-none focus:border-[#d4b896]"
-                      value={f.color}
-                      onChange={(e) => updateFeature(i, 'color', e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="p-1.5">
-                    <input
-                      placeholder="e.g. 99.99"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="w-full p-2 text-xs border rounded focus:outline-none focus:border-[#d4b896]"
-                      value={f.price}
-                      onChange={(e) => updateFeature(i, 'price', e.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
+                ))}
+            </div>
+          )}
+        </div>
+
+        {/* Colors Section: admin specifies how many color inputs, then fills them */}
+        <div className="border p-4 rounded-xl bg-gray-50 mt-4">
+          <div className="flex items-center justify-between mb-3">
+            <label className="font-bold text-sm text-gray-700">Colors</label>
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">Count:</span>
+              <input
+                type="number"
+                min="0"
+                max="50"
+                value={formData.colors?.length || 0}
+                onChange={handleColorCountChange}
+                className="w-20 p-1.5 border rounded text-xs focus:outline-none focus:border-[#d4b896]"
+              />
+            </div>
+          </div>
+          {(formData.colors?.length || 0) > 0 && (
+            <div className="grid grid-cols-3 gap-3">
+              {formData.colors.map((c, idx) => (
+                <input
+                  key={idx}
+                  placeholder={`Color ${idx + 1}`}
+                  className="p-2 text-xs border rounded focus:outline-none focus:border-[#d4b896]"
+                  value={c}
+                  onChange={(e) => {
+                    const newColors = [...formData.colors];
+                    newColors[idx] = e.target.value;
+                    setFormData((prev) => ({ ...prev, colors: newColors }));
+                  }}
+                />
               ))}
             </div>
           )}
