@@ -422,8 +422,17 @@ const HomeView = ({ onNavigate, products, aboutRef, currency, specialDiscount, o
 
   // Ensure products is always an array
   const safeProducts = Array.isArray(products) ? products : [];
-  // Take the last 4 products in the array as "New Arrivals" (newest first)
-  const newArrivals = [...safeProducts].slice(-4).reverse();
+
+  // FIX 1: New Arrivals - Sort by Date (Newest First), then take Top 4
+  const newArrivals = [...safeProducts]
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+    .slice(0, 4);
+
+  // FIX 2: Best Sellers - Filter, then Sort by Date (Newest First), then take Top 4
+  const bestSellers = [...safeProducts]
+    .filter((p) => p && p.isBestseller)
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+    .slice(0, 4);
 
   return (
     <>
@@ -536,8 +545,7 @@ const HomeView = ({ onNavigate, products, aboutRef, currency, specialDiscount, o
         </div>
       </section>
 
-
-      {/* Special Offers Section - Always show if there's an offer */}
+      {/* Special Offers Section */}
       {(specialDiscount > 0 || offerName) && (
         <section className="py-8 sm:py-12 md:py-16 bg-gradient-to-r from-[#d4b896] to-[#c9a876]">
           <div className="container mx-auto px-3 sm:px-4">
@@ -547,10 +555,7 @@ const HomeView = ({ onNavigate, products, aboutRef, currency, specialDiscount, o
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
               }}>
-              {/* Dark overlay */}
               <div className="absolute inset-0 bg-black/40" />
-              
-              {/* Special Offer Content */}
               <div className="absolute inset-0 flex flex-col items-center justify-center text-white text-center px-4">
                 <span className="text-sm sm:text-base md:text-lg font-bold uppercase tracking-widest mb-2 sm:mb-4 opacity-90">
                   {offerName ? offerName : 'Limited Time Offer'}
@@ -585,27 +590,23 @@ const HomeView = ({ onNavigate, products, aboutRef, currency, specialDiscount, o
             <p className="text-gray-500 mt-1 text-[10px] sm:text-xs">Our most loved designs</p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
-            {(Array.isArray(products) ? products : [])
-              .filter((p) => p && p.isBestseller)
-              .slice(0, 4)
-              .map((p) => (
-                <ProductCard
-                  key={p._id || p.id}
-                  product={p}
-                  onClick={(prod) => onNavigate('product', prod)}
-                  currency={currency}
-                  specialDiscount={specialDiscount}
-                />
-              ))}
+            {bestSellers.map((p) => (
+              <ProductCard
+                key={p._id || p.id}
+                product={p}
+                onClick={(prod) => onNavigate('product', prod)}
+                currency={currency}
+                specialDiscount={specialDiscount}
+              />
+            ))}
           </div>
         </div>
       </section>
 
-      {/* MAP SECTION */}
+      {/* MAP SECTION & ABOUT US - (No Changes needed here) */}
       <section className="py-8 sm:py-12 md:py-16 bg-white">
         <div className="container mx-auto px-3 sm:px-4 flex flex-col lg:flex-row gap-4 sm:gap-6 md:gap-8 items-start">
           <div className="lg:w-2/3 w-full rounded-xl sm:rounded-2xl overflow-hidden shadow-lg border border-gray-200 relative bg-gray-100" style={{ height: '350px', minHeight: '350px' }}>
-            {/* Embedded Google Map Iframe */}
             <iframe
               width="100%"
               height="100%"
@@ -645,7 +646,6 @@ const HomeView = ({ onNavigate, products, aboutRef, currency, specialDiscount, o
         </div>
       </section>
 
-      {/* About Us */}
       <section ref={aboutRef} className="py-20 bg-[#f8f4f0]">
         <div className="container mx-auto px-4">
           <h2 className="text-4xl font-serif font-bold text-[#3a3a3a] mb-8">
@@ -659,8 +659,6 @@ const HomeView = ({ onNavigate, products, aboutRef, currency, specialDiscount, o
     </>
   );
 };
-
-
 
 const CategoryView = ({ category, products, onNavigate, currency, specialDiscount, categories }) => {
   const safeProducts = Array.isArray(products) ? products : [];
@@ -3366,19 +3364,23 @@ const AppShell = () => {
 
   // --- PRODUCT CRUD FOR ADMIN ---
 
+// --- PRODUCT CRUD FOR ADMIN (CORRECTED) ---
+
   const handleAddProduct = async (productData, imageFiles) => {
     try {
+      // 1. Send data to backend and wait for the SAVED product
       const newProduct = await productsAPI.create(productData, imageFiles);
 
-      // attach frontend-provided images (if any) to the returned product so UI shows them immediately
-      if (productData && productData.images && productData.images.length > 0) {
-        newProduct.images = productData.images;
-        newProduct.image = productData.images[0] || newProduct.image;
-      }
+      // 2. DIRECTLY add the backend response to state. 
+      // Do NOT manually attach images here. The backend response (newProduct)
+      // already contains the final, correct image URLs.
+      
       setProducts((prev) => {
         const safePrev = Array.isArray(prev) ? prev : [];
+        // Add new product to the list
         return [...safePrev, newProduct];
       });
+
       return newProduct;
     } catch (error) {
       console.error('Error adding product:', error);
@@ -3390,15 +3392,14 @@ const AppShell = () => {
     try {
       const updated = await productsAPI.update(id, productData, imageFiles);
 
-      // ensure images from the admin form are preserved on the updated product
-      if (productData && productData.images && productData.images.length > 0) {
-        updated.images = productData.images;
-        updated.image = productData.images[0] || updated.image;
-      }
+      // Again, remove the manual image overriding block.
+      // Trust the 'updated' object from the backend.
+
       setProducts((prev) => {
         const safePrev = Array.isArray(prev) ? prev : [];
         return safePrev.map((p) => (p._id === id || p.id === id ? updated : p));
       });
+      
       return updated;
     } catch (error) {
       console.error('Error updating product:', error);
@@ -3418,7 +3419,6 @@ const AppShell = () => {
       throw error;
     }
   };
-
   // --- AUTH ---
 
   const handleLogin = (userData) => {
