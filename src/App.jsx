@@ -716,10 +716,19 @@ const CategoryView = ({ category, products, onNavigate, currency, specialDiscoun
 
 // --- PRODUCT DETAIL (with WhatsApp + proper suggestions) ---
 
+// import React, { useState, useEffect } from 'react';
+// import { useNavigate } from 'react-router-dom';
+// import { ChevronDown, ShoppingCart, MessageCircle } from 'lucide-react';
+// import ProductCard from './ProductCard'; // Ensure this path is correct
+// import { normalizeImageUrl, formatCurrency, getDisplayPriceFromBase } from './utils'; // Ensure utils path is correct
+
 const ProductDetail = ({ product, products, onBack, onAddToCart, currency, specialDiscount }) => {
   const [quantity, setQuantity] = useState(1);
   const [activeTab, setActiveTab] = useState('desc');
   const [customText, setCustomText] = useState('');
+
+  // NEW: Track the full variant object to access its specific price
+  const [selectedFeature, setSelectedFeature] = useState(null);
 
   const [primaryValue, setPrimaryValue] = useState('');
   const [color, setColor] = useState('');
@@ -731,6 +740,8 @@ const ProductDetail = ({ product, products, onBack, onAddToCart, currency, speci
 
   const hasFeatures = product?.features && product.features.length > 0;
   const primaryLabel = product.featureType === 'number' ? 'Quantity' : 'Size';
+  
+  // Extract unique sizes for the dropdown
   const uniquePrimaries = hasFeatures
     ? [...new Set(product.features.map((f) => f.size))]
     : ['12" x 18"', '18" x 24"', '24" x 36"'];
@@ -739,20 +750,52 @@ const ProductDetail = ({ product, products, onBack, onAddToCart, currency, speci
     ? product.colors
     : (hasFeatures ? [...new Set(product.features.map((f) => f.color))].filter(Boolean) : ['White', 'Clear', 'Black', 'Frosted']);
 
-    useEffect(() => {
-      // FIX: Ensure page starts at top when product loads
-      window.scrollTo(0, 0);
-  
-      if (uniquePrimaries.length > 0) setPrimaryValue(uniquePrimaries[0]);
-      if (uniqueColors.length > 0) setColor(uniqueColors[0]);
-      setQuantity(1);
-      setCustomText('');
-      const firstImage = product?.images?.[0] || product?.image || '';
-      setActiveImage(firstImage);
-    }, [product]); // reset when product changes
+  useEffect(() => {
+    // Scroll to top
+    window.scrollTo(0, 0);
 
+    // Initialize Default Selection
+    if (hasFeatures) {
+      const defaultFeature = product.features[0];
+      setSelectedFeature(defaultFeature);
+      setPrimaryValue(defaultFeature.size);
+      // If the variant has a specific color tied to it, set that too
+      if (defaultFeature.color) setColor(defaultFeature.color);
+    } else {
+       // Fallback for products without features
+       if (uniquePrimaries.length > 0) setPrimaryValue(uniquePrimaries[0]);
+    }
+
+    if (uniqueColors.length > 0 && !color) setColor(uniqueColors[0]);
+    setQuantity(1);
+    setCustomText('');
+    
+    const firstImage = product?.images?.[0] || product?.image || '';
+    setActiveImage(firstImage);
+  }, [product]); 
+
+  // LOGIC: Update the selected feature when the user changes Size/Quantity
+  const handlePrimaryChange = (e) => {
+    const newValue = e.target.value;
+    setPrimaryValue(newValue);
+
+    if (hasFeatures) {
+      // Find the variant that matches this size
+      // (Optional: You can also match by color if your variants are strictly Size+Color combos)
+      const feature = product.features.find(f => f.size === newValue);
+      if (feature) {
+        setSelectedFeature(feature);
+      }
+    }
+  };
+
+  // LOGIC: Calculate Dynamic Price
   const getBaseVariantPrice = () => {
-    // Features no longer carry per-variant price; use global product price
+    // 1. Try to get the price from the selected variant (Size/Quantity)
+    if (selectedFeature && selectedFeature.price) {
+      return Number(selectedFeature.price);
+    }
+    // 2. Fallback to the main product price
     return Number(product.price) || 0;
   };
 
@@ -772,7 +815,7 @@ const ProductDetail = ({ product, products, onBack, onAddToCart, currency, speci
       selectedSize: primaryValue,
       selectedColor: color,
       customization: customText,
-      price: basePrice, // base price in default currency
+      price: basePrice, // Uses the dynamic price calculated above
     };
     onAddToCart(itemToAdd);
   };
@@ -782,13 +825,14 @@ const ProductDetail = ({ product, products, onBack, onAddToCart, currency, speci
   );
   const waLink = `https://wa.me/919079199046?text=${waMessage}`;
 
-  // Similar products (same category, different product)
+  // Similar products logic
   const similarProducts = (products || [])
     .filter((p) => (p._id || p.id) !== (product._id || product.id) && p.category === product.category)
     .slice(0, 4);
 
   return (
     <div className="bg-white min-h-screen animate-fadeIn">
+      {/* Breadcrumb */}
       <div className="bg-[#f8f4f0] py-3 sm:py-4">
         <div className="container mx-auto px-3 sm:px-4 text-[10px] sm:text-xs text-gray-500">
           <span className="cursor-pointer hover:text-[#3a3a3a]" onClick={onBack}>
@@ -802,12 +846,11 @@ const ProductDetail = ({ product, products, onBack, onAddToCart, currency, speci
       <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 md:py-12">
         <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 md:gap-12">
 
-          {/* Image gallery: Amazon-style with thumbnails on left, main image on right */}
+          {/* Image Gallery */}
           <div className="lg:w-1/2 w-full">
             <div className="flex gap-3 sm:gap-4">
-              {/* Thumbnails on the left - vertical stack */}
               <div className="flex flex-col gap-2 sm:gap-3 flex-shrink-0">
-                {(product.images && product.images.length > 0 ? product.images : [product.image]).slice(0, 8).map((img, i) => (
+                {((product.images && product.images.length > 0 ? product.images.filter(Boolean) : [product.image]).slice(0, 8)).map((img, i) => (
                   <button
                     key={i}
                     onClick={() => setActiveImage(img)}
@@ -820,19 +863,25 @@ const ProductDetail = ({ product, products, onBack, onAddToCart, currency, speci
                     <img 
                       src={normalizeImageUrl(img)} 
                       className="w-full h-full object-cover" 
-                      alt={`Thumbnail ${i + 1}`} 
+                      alt={`Thumbnail ${i + 1}`}
+                      onError={(e) => {
+                        e.target.parentElement.style.display = 'none';
+                      }}
                     />
                   </button>
                 ))}
               </div>
 
-              {/* Main image on the right */}
               <div className="flex-1 bg-gray-100 rounded-xl sm:rounded-2xl overflow-hidden shadow-sm">
                 <img
                   src={normalizeImageUrl(activeImage || product.image)}
                   alt={product.name}
                   className="w-full h-auto object-cover"
                   style={{ minHeight: '380px', maxHeight: '680px' }}
+                  onError={(e) => {
+                    e.target.src = product.image ? normalizeImageUrl(product.image) : '';
+                    e.target.onError = null; // Prevent infinite loop
+                  }}
                 />
               </div>
             </div>
@@ -849,13 +898,13 @@ const ProductDetail = ({ product, products, onBack, onAddToCart, currency, speci
             </div>
           </div>
 
-          {/* Right: Details */}
+          {/* Product Details */}
           <div className="lg:w-1/2">
             <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-serif font-bold text-[#3a3a3a] mb-3">
-
               {product.name}
             </h1>
 
+            {/* DYNAMIC PRICE DISPLAY */}
             <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
               {hasDiscount && (
                 <span className="text-lg sm:text-xl text-gray-400 line-through">
@@ -868,7 +917,8 @@ const ProductDetail = ({ product, products, onBack, onAddToCart, currency, speci
             </div>
 
             <div className="border-t border-b border-gray-100 py-6 mb-6 space-y-6">
-              {/* Primary (Size/Number) */}
+              
+              {/* PRIMARY SELECTOR (Size/Quantity) - Now updates Price! */}
               <div>
                 <label className="block text-sm font-bold text-[#3a3a3a] uppercase tracking-wider mb-2">
                   {primaryLabel}
@@ -876,7 +926,7 @@ const ProductDetail = ({ product, products, onBack, onAddToCart, currency, speci
                 <div className="relative">
                   <select
                     value={primaryValue}
-                    onChange={(e) => setPrimaryValue(e.target.value)}
+                    onChange={handlePrimaryChange} // Uses the new handler
                     className="w-full p-4 border border-gray-300 rounded-xl focus:outline-none focus:border-[#d4b896] appearance-none bg-white text-gray-700 cursor-pointer shadow-sm hover:border-gray-400 transition-colors"
                   >
                     {uniquePrimaries.map((s) => (
@@ -892,7 +942,7 @@ const ProductDetail = ({ product, products, onBack, onAddToCart, currency, speci
                 </div>
               </div>
 
-              {/* Color */}
+              {/* Color Selector */}
               <div>
                 <label className="block text-sm font-bold text-[#3a3a3a] uppercase tracking-wider mb-2">
                   Color
@@ -931,7 +981,7 @@ const ProductDetail = ({ product, products, onBack, onAddToCart, currency, speci
               </div>
             </div>
 
-            {/* Quantity + Add to Cart */}
+            {/* Quantity Selector + Add to Cart */}
             <div className="flex flex-col sm:flex-row gap-4 mb-4">
               <div className="flex items-center border border-gray-300 w-32 rounded-xl overflow-hidden h-14">
                 <button
@@ -956,7 +1006,7 @@ const ProductDetail = ({ product, products, onBack, onAddToCart, currency, speci
               </button>
             </div>
 
-            {/* WhatsApp button */}
+            {/* WhatsApp Button */}
             <div className="mb-8">
               <a
                 href={waLink}
@@ -968,12 +1018,10 @@ const ProductDetail = ({ product, products, onBack, onAddToCart, currency, speci
                 Ask on WhatsApp
               </a>
             </div>
-
-            {/* Tabs moved below images to appear under the photo section */}
           </div>
         </div>
 
-        {/* Tabs (Description / Shipping) - placed below photos/details */}
+        {/* Tabs (Description / Shipping) */}
         <div className="mt-8 container mx-auto px-3 sm:px-4">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <div className="flex border-b border-gray-200">
@@ -1047,6 +1095,7 @@ const ProductDetail = ({ product, products, onBack, onAddToCart, currency, speci
     </div>
   );
 };
+
 
 // --- LOGIN VIEW ---
 
@@ -2488,11 +2537,13 @@ const AdminDashboard = ({
 
   const updateFeature = (index, field, value) => {
     const newFeatures = [...(formData.features || [])];
-    // Preserve decimals for numeric feature fields like `quantity` or `price`
+    // Parse numeric fields correctly: `price` -> float, `quantity` -> integer
     let parsed = value;
-    if (field === 'quantity' || field === 'price') {
-      // allow empty string while editing, otherwise parse as float
+    if (field === 'price') {
       parsed = value === '' ? '' : parseFloat(value);
+      if (Number.isNaN(parsed)) parsed = 0;
+    } else if (field === 'quantity') {
+      parsed = value === '' ? '' : parseInt(value, 10);
       if (Number.isNaN(parsed)) parsed = 0;
     }
     newFeatures[index] = { ...newFeatures[index], [field]: parsed };
@@ -2510,12 +2561,62 @@ const AdminDashboard = ({
   const handleImagesChange = (e) => {
     const files = Array.from(e.target.files || []).slice(0, 5);
     const urls = files.map((file) => URL.createObjectURL(file));
+    
+    // For new products, REPLACE; for updates, append (prevent duplicates by file name+size)
+    setFormData((prev) => {
+      let newImages = urls;
+      let newFiles = files;
+      
+      if (isUpdate && prev.images && prev.images.length > 0) {
+        // When updating, only add new files that don't already exist (by name and size)
+        const existingFileIds = new Set((prev.imageFiles || []).map(f => `${f.name}|${f.size}`));
+        const uniqueNewFiles = files.filter(file => !existingFileIds.has(`${file.name}|${file.size}`));
+        const uniqueNewUrls = urls.filter((_, idx) => !existingFileIds.has(`${files[idx].name}|${files[idx].size}`));
+        
+        newImages = [...prev.images, ...uniqueNewUrls].slice(0, 5);
+        newFiles = [...(prev.imageFiles || []), ...uniqueNewFiles].slice(0, 5);
+      } else {
+        // For new products, replace images entirely
+        newImages = urls.slice(0, 5);
+        newFiles = files.slice(0, 5);
+      }
+      
+      return {
+        ...prev,
+        images: newImages,
+        imageFiles: newFiles,
+        image: newImages[0] || prev.image || ''
+      };
+    });
+  };
+
+  const handleDeleteImage = (index) => {
     setFormData((prev) => ({
       ...prev,
-      images: urls, // For preview
-      imageFiles: files, // Store actual File objects for upload
-      image: urls[0] || prev.image || ''
+      images: prev.images.filter((_, i) => i !== index),
+      imageFiles: prev.imageFiles.filter((_, i) => i !== index),
+      image: index === 0 ? prev.images[1] || '' : prev.image
     }));
+  };
+
+  const handleMoveImage = (index, direction) => {
+    setFormData((prev) => {
+      const newIndex = direction === 'up' ? index - 1 : index + 1;
+      if (newIndex < 0 || newIndex >= prev.images.length) return prev;
+      
+      const newImages = [...prev.images];
+      const newFiles = [...prev.imageFiles];
+      
+      [newImages[index], newImages[newIndex]] = [newImages[newIndex], newImages[index]];
+      [newFiles[index], newFiles[newIndex]] = [newFiles[newIndex], newFiles[index]];
+      
+      return {
+        ...prev,
+        images: newImages,
+        imageFiles: newFiles,
+        image: newImages[0] || ''
+      };
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -2527,6 +2628,20 @@ const AdminDashboard = ({
 
     const finalPrice = Number(formData.price || 0);
 
+    // For updates, filter out blob: URLs (new uploads) from formData.images
+    // Keep only backend Cloudinary URLs so they don't get duplicated when appending new uploads
+    let imagesToSend = formData.images || [];
+    if (isUpdate && formData.imageFiles && formData.imageFiles.length > 0) {
+      // Get the file IDs of new uploads
+      const newFileIds = new Set(
+        formData.imageFiles.map(f => `${f.name}|${f.size}`)
+      );
+      // Filter to keep only URLs that are NOT blob: URLs (i.e., keep backend Cloudinary URLs)
+      imagesToSend = (formData.images || []).filter(img => 
+        img && !img.startsWith('blob:')
+      );
+    }
+
     const productData = {
       name: formData.name,
       category: formData.category,
@@ -2535,15 +2650,15 @@ const AdminDashboard = ({
       description: formData.description || '',
       isBestseller: formData.isBestseller || false,
       isNew: isUpdate ? baseExisting.isNew : true,
-      // Ensure features have correct shape and numeric price
+      // Ensure features have correct shape with `price` (float) and `quantity` (int)
       features: (formData.features || []).map((f) => ({
         size: f.size || '',
-        quantity: Number(f.quantity || 0)
+        price: Number(f.price || 0),
+        quantity: parseInt(f.quantity || 0, 10)
       })),
       featureType: formData.featureLabelType || 'size',
-      stock: formData.stock ? parseInt(formData.stock) : 0,
-      images: formData.images || [],
-      image: (formData.images && formData.images[0]) || prev?.image || ''
+      images: imagesToSend,
+      image: (imagesToSend && imagesToSend[0]) || baseExisting.image || ''
     };
 
     // Attach colors if present
@@ -2599,22 +2714,21 @@ const AdminDashboard = ({
   const openAddForm = () => {
     setIsUpdate(false);
     setShowForm(true);
-      setFormData({
-        id: '',
-        name: '',
-        description: '',
-        category: 'welcome',
-        price: '',
-        originalPrice: '',
-        size: '12x18',
-        color: 'White',
-        images: [],
-        imageFiles: [],
-        features: [],
-        featureLabelType: 'size',
-        isBestseller: false,
-        stock: 0,
-      });
+    setFormData({
+      id: '',
+      name: '',
+      description: '',
+      category: 'welcome',
+      price: '',
+      originalPrice: '',
+      size: '12x18',
+      color: 'White',
+      images: [],
+      imageFiles: [],
+      features: [],
+      featureLabelType: 'size',
+      isBestseller: false,
+    });
   };
 
   const openUpdateForm = (product) => {
@@ -2632,15 +2746,18 @@ const AdminDashboard = ({
       images: product.images || (product.image ? [product.image] : []),
       imageFiles: [], // Reset file objects for update
       image: product.image,
-      // normalize existing features to new shape {size, quantity}
-      features: (product.features || []).map((f) => ({ size: f.size || '', quantity: Number(f.quantity ?? f.qty ?? f.price ?? 0) })),
+      // normalize existing features to new shape {size, price, quantity}
+      features: (product.features || []).map((f) => ({
+        size: f.size || '',
+        price: Number(f.price ?? f.quantity ?? f.qty ?? 0),
+        quantity: parseInt(f.quantity ?? f.qty ?? 0, 10) || 0
+      })),
       // colors: use explicit colors array if present, otherwise derive from legacy features' color field
       colors: Array.isArray(product.colors) && product.colors.length > 0
         ? product.colors
         : Array.from(new Set((product.features || []).map((f) => f.color).filter(Boolean))),
       featureLabelType: product.featureType || 'size',
       isBestseller: product.isBestseller || false,
-      stock: product.stock || 0
     });
   };
 
@@ -2767,18 +2884,15 @@ const AdminDashboard = ({
           {(formData.features?.length || 0) > 0 && (
             <div className="border rounded-lg overflow-hidden bg-white">
                 <div className="grid grid-cols-2 text-xs font-bold bg-[#f8f4f0] border-b">
-                  <div className="px-3 py-2 border-r">
-                    {formData.featureLabelType === 'number' ? 'Quantity' : 'Size'}
-                  </div>
-                  <div className="px-3 py-2">Prices</div>
+                  <div className="px-3 py-2 border-r">{formData.featureLabelType === 'number' ? 'Quantity' : 'Size'}</div>
+                  <div className="px-3 py-2">Price</div>
                 </div>
                 {formData.features.map((f, i) => (
                   <div key={i} className="grid grid-cols-2 text-xs">
                     <div className="border-r p-1.5">
                       <input
-                        placeholder={
-                          formData.featureLabelType === 'number' ? 'e.g. 1, 2, 3' : 'e.g. 18x24'
-                        }
+                        name="size"
+                        placeholder={formData.featureLabelType === 'number' ? 'e.g. 1, 2, 3' : 'e.g. 18x24'}
                         className="w-full p-2 text-xs border rounded focus:outline-none focus:border-[#d4b896]"
                         value={f.size}
                         onChange={(e) => updateFeature(i, 'size', e.target.value)}
@@ -2787,13 +2901,14 @@ const AdminDashboard = ({
                     </div>
                     <div className="p-1.5">
                       <input
+                        name="price"
                         placeholder="e.g. 10.50"
                         type="number"
                         min="0"
                         step="0.01"
                         className="w-full p-2 text-xs border rounded focus:outline-none focus:border-[#d4b896]"
-                        value={f.quantity}
-                        onChange={(e) => updateFeature(i, 'quantity', e.target.value)}
+                        value={f.price ?? ''}
+                        onChange={(e) => updateFeature(i, 'price', e.target.value)}
                         required
                       />
                     </div>
@@ -2850,14 +2965,63 @@ const AdminDashboard = ({
               <input type="file" accept="image/*" multiple className="hidden" onChange={handleImagesChange} />
             </label>
             {formData.images?.length > 0 && (
-              <div className="flex gap-2 flex-wrap">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
                 {formData.images.map((img, idx) => (
-                  <img
-                    key={idx}
-                    src={img}
-                    alt="preview"
-                    className="w-16 h-16 rounded-lg object-cover border"
-                  />
+                  <div key={idx} className="relative">
+                    <div className="relative rounded-lg overflow-hidden border-2 border-gray-200 bg-gray-50 h-24">
+                      {img ? (
+                        <img
+                          src={img}
+                          alt={`photo-${idx + 1}`}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            // Fallback for broken image URLs
+                            e.target.style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gray-300 text-gray-600 text-xs">
+                          No Preview
+                        </div>
+                      )}
+                      {/* Serial number badge */}
+                      <div className="absolute top-1 left-1 bg-amber-600 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">
+                        {idx + 1}
+                      </div>
+                    </div>
+                    {/* Delete button */}
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteImage(idx)}
+                      className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold"
+                      title="Delete photo"
+                    >
+                      ✕
+                    </button>
+                    {/* Move buttons */}
+                    <div className="flex gap-1 mt-1">
+                      {idx > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleMoveImage(idx, 'up')}
+                          className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs py-1 rounded font-bold"
+                          title="Move up"
+                        >
+                          ↑
+                        </button>
+                      )}
+                      {idx < formData.images.length - 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleMoveImage(idx, 'down')}
+                          className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs py-1 rounded font-bold"
+                          title="Move down"
+                        >
+                          ↓
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 ))}
               </div>
             )}

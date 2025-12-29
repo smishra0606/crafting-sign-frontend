@@ -4,22 +4,17 @@ import { ArrowLeft, ShoppingCart, Plus, Minus, User, Check } from 'lucide-react'
 const ProductDetail = ({ product, onBack, onAddToCart }) => {
   const [quantity, setQuantity] = useState(1);
   const [customText, setCustomText] = useState("");
-  const [currentPrice, setCurrentPrice] = useState(0);
+  const [selectedFeature, setSelectedFeature] = useState(null);
   const sizes = (product.features || []).map(f => f.size).filter(Boolean);
   const colors = (product.colors || []).filter(Boolean);
-  const [selectedSize, setSelectedSize] = useState(sizes[0] || 'Default');
   const [selectedColor, setSelectedColor] = useState(colors[0] || (sizes.length ? null : 'Default'));
 
-  // Update currentPrice whenever selectedSize changes
+  // Set default feature selection on component mount or product change
   useEffect(() => {
-    if (sizes.length > 0) {
-      const matchingFeature = product.features?.find(f => f.size === selectedSize);
-      setCurrentPrice(matchingFeature?.quantity || product.features?.[0]?.quantity || product.price || 0);
-    } else {
-      // No variants, use root price
-      setCurrentPrice(product.price || 0);
+    if (product && product.features && product.features.length > 0) {
+      setSelectedFeature(product.features[0]);
     }
-  }, [selectedSize, product.features, product.price, sizes.length]);
+  }, [product]);
 
   if (!product) return null;
 
@@ -40,7 +35,7 @@ const ProductDetail = ({ product, onBack, onAddToCart }) => {
           <div>
             <div className="mb-6 border-b border-gray-100 pb-6">
               <h1 className="text-4xl font-serif font-bold text-[#3a3a3a] mb-3">{product.name}</h1>
-              <span className="text-3xl font-bold text-amber-600">${currentPrice.toFixed(2)}</span>
+              <span className="text-3xl font-bold text-amber-600">${selectedFeature ? (Number(selectedFeature.price || 0).toFixed(2)) : product.price ? Number(product.price).toFixed(2) : '0.00'}</span>
               <p className="text-gray-600 leading-relaxed mt-4">{product.description}</p>
             </div>
 
@@ -60,8 +55,14 @@ const ProductDetail = ({ product, onBack, onAddToCart }) => {
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Choose Size</label>
                 <div className="grid grid-cols-2 gap-3">
-                  {sizes.length > 0 ? sizes.map(s => (
-                    <button key={s} onClick={() => setSelectedSize(s)} className={`py-3 px-4 rounded-lg border text-sm font-medium transition-all ${selectedSize === s ? 'border-amber-500 bg-white text-amber-600' : 'border-gray-200 text-gray-600'}`}>{s}</button>
+                  {sizes.length > 0 ? product.features.map(feature => (
+                    <button 
+                      key={feature._id || feature.size} 
+                      onClick={() => setSelectedFeature(feature)} 
+                      className={`py-3 px-4 rounded-lg border text-sm font-medium transition-all ${selectedFeature && selectedFeature._id === feature._id ? 'border-amber-500 bg-white text-amber-600' : 'border-gray-200 text-gray-600'}`}
+                    >
+                      {feature.size}
+                    </button>
                   )) : (
                     <button className="py-3 px-4 rounded-lg border text-sm font-medium text-gray-600">Default</button>
                   )}
@@ -79,7 +80,7 @@ const ProductDetail = ({ product, onBack, onAddToCart }) => {
                 <span className="w-12 text-center font-bold text-lg">{quantity}</span>
                 <button onClick={() => setQuantity(quantity + 1)} className="px-4 py-4 hover:text-amber-600"><Plus size={18}/></button>
               </div>
-              <button onClick={() => onAddToCart({...product, quantity, selectedSize, selectedColor, customization: customText})} className="flex-1 bg-[#3a3a3a] text-white py-4 rounded-xl font-bold text-lg hover:bg-amber-600 transition-all shadow-lg flex justify-center items-center gap-2">
+              <button onClick={() => onAddToCart({...product, quantity, selectedSize: selectedFeature?.size || 'Default', selectedColor, customization: customText})} className="flex-1 bg-[#3a3a3a] text-white py-4 rounded-xl font-bold text-lg hover:bg-amber-600 transition-all shadow-lg flex justify-center items-center gap-2">
                 <ShoppingCart size={20} /> Add to Cart
               </button>
             </div>

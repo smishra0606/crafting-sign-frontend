@@ -11,7 +11,7 @@ const ProductCard = ({ product, onClick, currency, specialDiscount }) => {
   const [imageError, setImageError] = useState(false);
 
   // Fallback to first variant's price, then root price, then 0
-  const variantPrice = product.features?.[0]?.quantity || product.price || 0;
+  const variantPrice = product.features?.[0]?.price || product.price || 0;
 
   const { hasDiscount, original, final } = getDisplayPriceFromBase({
     basePrice: variantPrice,
