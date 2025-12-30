@@ -2628,19 +2628,14 @@ const AdminDashboard = ({
 
     const finalPrice = Number(formData.price || 0);
 
-    // For updates, filter out blob: URLs (new uploads) from formData.images
-    // Keep only backend Cloudinary URLs so they don't get duplicated when appending new uploads
-    let imagesToSend = formData.images || [];
-    if (isUpdate && formData.imageFiles && formData.imageFiles.length > 0) {
-      // Get the file IDs of new uploads
-      const newFileIds = new Set(
-        formData.imageFiles.map(f => `${f.name}|${f.size}`)
-      );
-      // Filter to keep only URLs that are NOT blob: URLs (i.e., keep backend Cloudinary URLs)
-      imagesToSend = (formData.images || []).filter(img => 
-        img && !img.startsWith('blob:')
-      );
+    // For new products, DO NOT include blob: URLs—let the API upload the files
+    // For updates, keep only backend URLs (not blob:) and let API upload new files
+    let imagesToSend = [];
+    if (isUpdate) {
+      // For updates, keep existing Spaces URLs (non-blob)
+      imagesToSend = (formData.images || []).filter(img => img && !img.startsWith('blob:'));
     }
+    // For new products, imagesToSend starts empty; the API will upload files and populate images
 
     const productData = {
       name: formData.name,
