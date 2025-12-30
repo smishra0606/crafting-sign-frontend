@@ -18,7 +18,7 @@ const getApiBaseUrl = () => {
   
   // If using the domain, use the same protocol (HTTPS in production)
   if (hostname === 'craftingsign.com' || hostname === 'www.craftingsign.com') {
-    return `${protocol}//craftingsign.com/api`;
+    return 'https://seahorse-app-fq2tu.ondigitalocean.app/api';
   }
   
   // If using craftsign.com domain
@@ -56,7 +56,7 @@ const getBackendBaseUrl = () => {
   const protocol = window.location.protocol;
   
   if (hostname === 'craftingsign.com' || hostname === 'www.craftingsign.com') {
-    return `${protocol}//craftingsign.com`;
+    return 'https://seahorse-app-fq2tu.ondigitalocean.app';
   }
   
   if (hostname === 'craftsign.com' || hostname === 'www.craftsign.com') {
